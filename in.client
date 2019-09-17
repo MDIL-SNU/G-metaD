@@ -1,0 +1,35 @@
+#
+echo both
+variable mode index file
+
+if "${mode} == file" then &
+  "message client md file tmp.couple" &
+elif "${mode} == zmq" &
+  "message client md zmq localhost:5555" &
+
+boundary p p p
+units metal
+atom_modify map yes
+neighbor 0.0 bin
+neigh_modify delay 0 every 1
+
+read_data crystal.dat
+
+pair_style mtd 1 &
+               Si 0.0001 0.6 20 &
+               1 &
+               1.0
+pair_coeff * * potential_saved Si
+
+fix vasp all client/md
+fix_modify vasp energy yes
+
+compute ppa all pe/atom
+thermo 1
+thermo_style custom step temp pe evdwl ecoul vol press spcpu
+fix int all npt temp 300 300 0.1 tri 0 0 1.0
+dump traj all custom 1 traj.dump id type x y z ix iy iz c_ppa fx fy fz
+dump_modify traj sort id
+timestep 0.002
+velocity all create 300 25829
+run 1

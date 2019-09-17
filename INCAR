@@ -1,0 +1,20 @@
+ISTART = 1
+ICHARG = 0
+
+LWAVE = .T.
+LCHARG = .F.
+
+ENCUT = 250
+PREC = Normal
+ADDGRID = .F.
+EDIFF = 1E-4
+LREAL = Auto
+ALGO = Fast
+NSW = 0
+IBRION = -1
+
+ISMEAR = 0
+SIGMA = 0.1
+
+NPAR = 1
+KPAR = 1
