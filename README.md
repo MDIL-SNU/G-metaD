@@ -125,7 +125,7 @@ For example, the commands below can enable both processes (`vasp_wrap.py` and LA
 and make waiting LAMMPS client not consume 100% CPU usage while waiting for MPI operations.
 
 ```bash
-export PSM2_SHAREDCONTEXTS=YES                                                                                       
-export PSM2_MAX_CONTEXTS_PER_JOB=8                                                                                   
-export I_MPI_WAIT_MODE=1   
+export PSM2_SHAREDCONTEXTS=YES
+export PSM2_MAX_CONTEXTS_PER_JOB=8
+export I_MPI_WAIT_MODE=1
 ```
