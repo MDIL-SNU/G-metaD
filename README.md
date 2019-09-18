@@ -51,8 +51,8 @@ from the command line, or in your shell start-up script.
 Here is the sample syntax for the csh or tcsh shells:
 
 ```bash
-export PYTHONPATH $PYTHONPATH:/path/to/lammps/lib/message/cslib/src
-export LD_LIBRARY_PATH $LD_LIBRARY_PATH:/path/to/lammps/lib/message/cslib/src
+export PYTHONPATH=$PYTHONPATH:/path/to/lammps/lib/message/cslib/src
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/path/to/lammps/lib/message/cslib/src
 ```
 
 ----------------
@@ -107,13 +107,25 @@ background.
 File mode of messaging:
 
 ```bash
-mpirun -np 1 lmp_mpi -v mode file < in.client
+mpirun -np 1 lmp_mpi -v mode file -in in.client
 python vasp_wrap.py file POSCAR_template "mpirun -np 1 vasp.x"
 ```
 
 ZMQ mode of messaging:
 
 ```bash
-mpirun -np 1 lmp_mpi -v mode zmq < in.client
+mpirun -np 1 lmp_mpi -v mode zmq -in in.client
 python vasp_wrap.py zmq POSCAR_template "mpirun -np 1 vasp.x"
+```
+
+---------------
+
+You might have to set some environment variables for oversubscribing.
+For example, the commands below can enable both processes (`vasp_wrap.py` and LAMMPS) use all cores,
+and make waiting LAMMPS client not consume 100% CPU usage while waiting for MPI operations.
+
+```bash
+export PSM2_SHAREDCONTEXTS=YES                                                                                       
+export PSM2_MAX_CONTEXTS_PER_JOB=8                                                                                   
+export I_MPI_WAIT_MODE=1   
 ```
