@@ -2,3 +2,7 @@ tmp
 log.lammps
 POSCAR
 vasprun.xml
+*.o
+*.so
+*.a
+*.pyc
