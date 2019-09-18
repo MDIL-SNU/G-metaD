@@ -39,6 +39,8 @@ typedef int MPI_Info;
 #define MPI_DOUBLE 4
 #define MPI_CHAR 5
 #define MPI_SUM 0
+#define MPI_ANY_SOURCE 	(-2)
+#define MPI_ANY_TAG     (-1)
 
 static void MPI_Init(int *, char ***) {}
 static MPI_Comm MPI_Comm_f2c(MPI_Comm world) {return world;}
@@ -55,6 +57,7 @@ static void MPI_Comm_connect(const char *, MPI_Info, int,
 static void MPI_Comm_split(MPI_Comm, int, int, MPI_Comm *) {}
 static void MPI_Comm_free(MPI_Comm *) {}
 
+static void MPI_Iprobe(int, int, MPI_Comm, int*, MPI_Status*) {}
 static void MPI_Send(const void *, int, MPI_Datatype, int, int, MPI_Comm) {}
 static void MPI_Recv(void *, int, MPI_Datatype, int, int, 
                      MPI_Comm, MPI_Status *) {}

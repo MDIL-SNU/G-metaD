@@ -24,8 +24,11 @@
 #include <stdio.h>
 
 #include "msg_zmq.h"
+#include "mpi_util.h"
 
 using namespace CSLIB_NS;
+
+#define SLEEP 0.1       // delay in CPU secs to check for message file
 
 /* ---------------------------------------------------------------------- */
 
@@ -123,11 +126,12 @@ void MsgZMQ::send(int nheader, int *header, int nbuf, char *buf)
 
 void MsgZMQ::recv(int &maxheader, int *&header, int &maxbuf, char *&buf)
 {
+  int delay = (int) (1000000 * SLEEP);
   if (me == 0) {
     zmq_recv(socket,lengths,2*sizeof(int),0);
     zmq_send(socket,NULL,0,0);
   }
-  if (nprocs > 1) MPI_Bcast(lengths,2,MPI_INT,0,world);
+  if (nprocs > 1) MPI_Bcast_lazy(lengths,2,MPI_INT,0,world,delay);
 
   int nheader = lengths[0];
   int nbuf = lengths[1];

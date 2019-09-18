@@ -24,6 +24,7 @@
 #include <unistd.h>
 
 #include "msg_file.h"
+#include "mpi_util.h"
 
 using namespace CSLIB_NS;
 
@@ -102,11 +103,11 @@ void MsgFile::recv(int &maxheader, int *&header, int &maxbuf, char *&buf)
 
   // wait until signal file exists to open message file
 
+  int delay = (int) (1000000 * SLEEP);
   if (me == 0) {
     if (client) sprintf(filename,"%s.%s",fileroot,"server.signal");
     else if (server) sprintf(filename,"%s.%s",fileroot,"client.signal");
 
-    int delay = (int) (1000000 * SLEEP);
     while (1) {
       fp = fopen(filename,"r");
       if (fp) break;
@@ -123,7 +124,8 @@ void MsgFile::recv(int &maxheader, int *&header, int &maxbuf, char *&buf)
   // read and broadcast data
   
   if (me == 0) fread(lengths,sizeof(int),2,fp);
-  if (nprocs > 1) MPI_Bcast(lengths,2,MPI_INT,0,world);
+  // wait for first message without busy looping
+  if (nprocs > 1) MPI_Bcast_lazy(lengths,2,MPI_INT,0,world,delay);
 
   int nheader = lengths[0];
   int nbuf = lengths[1];
