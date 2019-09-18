@@ -121,11 +121,12 @@ python vasp_wrap.py zmq POSCAR_template "mpirun -np 1 vasp.x"
 ---------------
 
 You might have to set some environment variables for oversubscribing.
-For example, the commands below can enable both processes (`vasp_wrap.py` and LAMMPS) use all cores,
-and make waiting LAMMPS client not consume 100% CPU usage while waiting for MPI operations.
+For example, the commands below can enable both processes (`vasp_wrap.py` and LAMMPS) use all cores.
 
 ```bash
 export PSM2_SHAREDCONTEXTS=YES
 export PSM2_MAX_CONTEXTS_PER_JOB=8
-export I_MPI_WAIT_MODE=1
 ```
+
+To make waiting LAMMPS client not consume 100% CPU usage while waiting for MPI operations,
+you can use modified version of CSlib in this repository.
