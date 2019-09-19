@@ -15,6 +15,9 @@ between the two programs either via files or sockets (ZMQ).
 
 ----------------
 
+Building
+--------
+
 Build LAMMPS with its MESSAGE package installed:
 
 See the Build extras doc page and its MESSAGE package
@@ -56,6 +59,9 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/path/to/lammps/lib/message/cslib/src
 ```
 
 ----------------
+
+Running
+-------
 
 Prepare to use VASP and the `vasp_wrapper.py` script
 
@@ -130,3 +136,15 @@ export PSM2_MAX_CONTEXTS_PER_JOB=8
 
 To make waiting LAMMPS client not consume 100% CPU usage while waiting for MPI operations,
 you can use modified version of CSlib in this repository.
+
+------------------
+
+Caution
+-------
+
+1. Atom types in LAMMPS and VASP (POSCAR) may differ and cause unexpected problems.
+   The code does not check for consistency.
+2. The convergence of electronic step in VASP is not checked.
+3. Some errors will not terminate your job. For example, when VASP calculation fails causing `vasp_wrap.py` to terminate,
+   LAMMPS hangs waiting for server response.
+4. Since VASP have to start and terminate on every step, it could be much slower than VASP MD for small systems due to the overhead.
