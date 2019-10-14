@@ -32,10 +32,12 @@ if version == 3:
     sys.exit("The CSlib python wrapper does not yet support python 3")
 
 import subprocess
+import time
 import xml.etree.ElementTree as ET
 import numpy as np
 from cslib import CSlib
 
+MAX_TRY = 3
 
 # enums matching FixClientMD class in LAMMPS
 SETUP, STEP = range(1, 2 + 1)
@@ -269,7 +271,19 @@ def main(argv):
         poscar_write(poscar_template, natoms, ntypes, types, coords, box)
 
         # invoke VASP
-        subprocess.check_output(vaspcmd, stderr=subprocess.STDOUT, shell=True)
+        ntry = 0
+	while True:
+            try:
+                ntry += 1
+                subprocess.check_output(vaspcmd, stderr=subprocess.STDOUT, shell=True)
+                break
+            except subprocess.CalledProcessError:
+                if ntry <= MAX_TRY:
+                    print("CalledProcessError. Trying again... ({0:}/{1:})".format(ntry, MAX_TRY))
+                    time.sleep(10)
+                else:
+                    print("Too many CalledProcessError. Aborting...")
+                    sys.exit(1)
 
         # process VASP output
         energy, forces_tmp, virial = vasprun_read()
