@@ -25,7 +25,10 @@
 # detect if VASP had an error and return ERROR field, e.g. non-convergence ??
 
 from __future__ import print_function
+from __future__ import division
 import sys
+import os
+from shutil import copy2
 
 version = sys.version_info[0]
 if version == 3:
@@ -113,11 +116,16 @@ def poscar_write(poscar, natoms, ntypes, types, coords, box):
     psnew.close()
 
 
-def vasprun_read():
+def vasprun_read(max_scstep=30):
     """Read a VASP output vasprun.xml file using ElementTree module.
     """
+    converged = True
     tree = ET.parse("vasprun.xml")
     root = tree.getroot()
+
+    num_scstep = len(root.findall("calculation/scstep"))
+    if num_scstep > max_scstep:
+        converged = False
 
     energy = root.find("calculation/energy")
     for child in energy:
@@ -151,7 +159,7 @@ def vasprun_read():
             syz = 0.5 * (stensor[1][2] + stensor[2][1])
             sout = [sxx, syy, szz, sxy, sxz, syz]
 
-    return eout, fout, sout
+    return eout, fout, sout, converged
 
 
 def main(argv):
@@ -276,7 +284,31 @@ def main(argv):
             try:
                 ntry += 1
                 subprocess.check_output(vaspcmd, stderr=subprocess.STDOUT, shell=True)
-                break
+                # process VASP output
+                energy, forces_tmp, virial, converged = vasprun_read()
+                if converged and ntry == 1:
+                    break
+                elif converged:
+                    copy2("INCAR_backup", "INCAR")
+                    break
+                elif ntry == 1:
+                    print("WARNING: VASP did not converge well. Trying again with modified INCAR.")
+                    # Change some INCAR tags, remove WAVECAR, and try again.
+                    os.remove("WAVECAR")
+                    os.remove("vasprun.xml")
+                    copy2("INCAR", "INCAR_backup")
+                    with open("INCAR") as fp:
+                        lines = fp.readlines()
+                    # Remove KPAR tags
+                    lines = [l for l in lines if "KPAR" not in l]
+                    with open("INCAR", "w") as fp:
+                        fp.writelines(lines)
+                    continue
+                else:
+                    print("VASP failed to converge. Aborting...")
+                    copy2("INCAR_backup", "INCAR")
+                    sys.exit(1)
+
             except subprocess.CalledProcessError:
                 if ntry <= MAX_TRY:
                     print("CalledProcessError. Trying again... ({0:}/{1:})".format(ntry, MAX_TRY))
@@ -285,8 +317,6 @@ def main(argv):
                     print("Too many CalledProcessError. Aborting...")
                     sys.exit(1)
 
-        # process VASP output
-        energy, forces_tmp, virial = vasprun_read()
 
         # sort VASP forces by id (it was sorted by type)
         forces = []
