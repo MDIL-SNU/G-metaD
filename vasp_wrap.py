@@ -5,6 +5,7 @@
 # http://lammps.sandia.gov, Sandia National Laboratories
 # Steve Plimpton, sjplimp@sandia.gov
 # modified by Dongsun Yoo, will1792@snu.ac.kr
+# modified by Jisu Jung, wjdwltn928@snu.ac.kr
 # ----------------------------------------------------------------------
 
 # Syntax: vasp_wrap.py file/zmq POSCARfile vaspcmd
@@ -26,9 +27,9 @@
 
 from __future__ import print_function
 from __future__ import division
-import sys
 import os
-from shutil import copy2
+import sys
+import shutil
 
 version = sys.version_info[0]
 if version == 3:
@@ -110,15 +111,16 @@ def poscar_write(poscar, natoms, ntypes, types, coords, box):
             x = coords[3 * i + 0]
             y = coords[3 * i + 1]
             z = coords[3 * i + 2]
-            aline = "  %g %g %g\n" % (x, y, z)
+            aline = "  {0:.6f} {1:.6f} {2:.6f}\n".format(x, y, z)
             psnew.write(aline)
 
     psnew.close()
 
 
-def vasprun_read(max_scstep=30):
+def vasprun_read(max_scstep = 60):
     """Read a VASP output vasprun.xml file using ElementTree module.
     """
+
     converged = True
     tree = ET.parse("vasprun.xml")
     root = tree.getroot()
@@ -190,7 +192,12 @@ def main(argv):
         error("Mismatch in client/server protocol")
     cs.send(0, 0)
 
+    # make directory for OUTCAR
+    if not os.path.isdir("./data"):
+        os.mkdir("./data")
+
     # endless server loop
+    timestep = 0
     while True:
         # recv message from client
         # msgID = 0 = all-done message
@@ -280,33 +287,47 @@ def main(argv):
 
         # invoke VASP
         ntry = 0
-	while True:
+        while True:
             try:
                 ntry += 1
                 subprocess.check_output(vaspcmd, stderr=subprocess.STDOUT, shell=True)
-                # process VASP output
+
                 energy, forces_tmp, virial, converged = vasprun_read()
                 if converged and ntry == 1:
+                    shutil.move("./OUTCAR", "./data/OUTCAR_{}".format(timestep))
+                    timestep += 1
                     break
                 elif converged:
-                    copy2("INCAR_backup", "INCAR")
+                    shutil.copy2("INCAR_backup", "INCAR")
                     break
                 elif ntry == 1:
                     print("WARNING: VASP did not converge well. Trying again with modified INCAR.")
-                    # Change some INCAR tags, remove WAVECAR, and try again.
                     os.remove("WAVECAR")
                     os.remove("vasprun.xml")
-                    copy2("INCAR", "INCAR_backup")
-                    with open("INCAR") as fp:
-                        lines = fp.readlines()
-                    # Remove KPAR tags
-                    lines = [l for l in lines if "KPAR" not in l]
+                    shutil.copy2("INCAR", "INCAR_backup")
+                    with open("INCAR", "r") as fp:
+                        lines = fp.raedlines()
+                    lines = [l for l in lines if "MIX" not in l]
                     with open("INCAR", "w") as fp:
                         fp.writelines(lines)
+                        incars = root.find("incar")
+                        for incar in incars:
+                            if incar.attrib["name"] == "ISPIN":
+                                # AMP2 scheme
+                                if "2" in incar.text:
+                                    fp.write("AMIX = 0.2\n")
+                                    fp.write("BMIX = 0.0001\n")
+                                    fp.write("AMIX_MAG = 0.8\n")
+                                    fp.write("BMIX_MAG = 0.0001\n")
+                                    break
+                                else:
+                                    break
+                            else:
+                                continue
                     continue
                 else:
                     print("VASP failed to converge. Aborting...")
-                    copy2("INCAR_backup", "INCAR")
+                    shutil.copy2("INCAR_backup", "INCAR")
                     sys.exit(1)
 
             except subprocess.CalledProcessError:
@@ -316,7 +337,6 @@ def main(argv):
                 else:
                     print("Too many CalledProcessError. Aborting...")
                     sys.exit(1)
-
 
         # sort VASP forces by id (it was sorted by type)
         forces = []

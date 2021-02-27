@@ -15,7 +15,7 @@ neigh_modify delay 0 every 1
 
 read_data crystal.dat
 
-pair_style mtd 1 &
+pair_style mtd 1e-4 1 &
                Si 0.0001 0.6 20 &
                1 &
                1.0
@@ -23,6 +23,7 @@ pair_coeff * * potential_saved Si
 
 fix vasp all client/md
 fix_modify vasp energy yes
+fix_modify vasp virial yes
 
 compute ppa all pe/atom
 thermo 1
