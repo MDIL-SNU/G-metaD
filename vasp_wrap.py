@@ -29,6 +29,7 @@ from __future__ import print_function
 from __future__ import division
 import os
 import sys
+import glob
 import shutil
 
 version = sys.version_info[0]
@@ -197,7 +198,6 @@ def main(argv):
         os.mkdir("./data")
 
     # endless server loop
-    timestep = 0
     while True:
         # recv message from client
         # msgID = 0 = all-done message
@@ -294,8 +294,13 @@ def main(argv):
 
                 energy, forces_tmp, virial, converged = vasprun_read()
                 if converged and ntry == 1:
-                    shutil.move("./OUTCAR", "./data/OUTCAR_{}".format(timestep))
-                    timestep += 1
+                    outcar_list = glob.glob("./data/OUTCAR_*")
+                    history = [int(i.split("_")[-1]) for i in outcar_list]
+                    if len(history) == 0:
+                        history = 0
+                    else:
+                        history = max(history)
+                    shutil.move("./OUTCAR", "./data/OUTCAR_{}".format(history))
                     break
                 elif converged:
                     shutil.copy2("INCAR_backup", "INCAR")
@@ -319,12 +324,6 @@ def main(argv):
                                     fp.write("BMIX = 0.0001\n")
                                     fp.write("AMIX_MAG = 0.8\n")
                                     fp.write("BMIX_MAG = 0.0001\n")
-                                    break
-                                else:
-                                    break
-                            else:
-                                continue
-                    continue
                 else:
                     print("VASP failed to converge. Aborting...")
                     shutil.copy2("INCAR_backup", "INCAR")
