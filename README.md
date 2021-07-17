@@ -13,6 +13,13 @@ library (CSlib), which is included in the LAMMPS distribution in
 lib/message.  As explained below you can choose to exchange data
 between the two programs either via files or sockets (ZMQ).
 
+---------------
+
+Requirement
+----------
+LAMMPS: 29Oct2020 or later  
+[Eigen](http://eigen.tuxfamily.org): C++ library 
+
 ----------------
 
 Building
@@ -23,9 +30,16 @@ Build LAMMPS with its MESSAGE package installed:
 See the Build extras doc page and its MESSAGE package
 section for details.
 
+
+OpenMP parallelization are also supported.  
+See the OPENMP package section for details if needed.
+
 ```bash
+cp -r cslib lammps/lib/message/
 cd lammps/lib/message
 python Install.py -m -z       # build CSlib with MPI and ZMQ support
+cp -r Eigen lammps/src/
+cp pair_mtd.* symmetry_function.h lammps/src
 cd lammps/src
 make yes-message
 make mpi

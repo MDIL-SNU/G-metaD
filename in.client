@@ -10,13 +10,12 @@ elif "${mode} == zmq" &
 boundary p p p
 units metal
 atom_modify map yes
-neighbor 0.0 bin
-neigh_modify delay 0 every 1
+neigh_modify delay 0 every 1 check yes
 
 read_data crystal.dat
 
 pair_style mtd 1e-4 1 &
-               Si 0.0001 0.6 20 &
+               Si 0.001 1.0 20 &
                1 &
                1.0
 pair_coeff * * potential_saved Si
