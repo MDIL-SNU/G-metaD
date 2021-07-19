@@ -1,5 +1,6 @@
-Sample LAMMPS MD wrapper on VASP quantum DFT via client/server
-coupling
+G-metaD can be used to sample training set of neural network potentials 
+via metadynamics, using atom-centered symmetry function vector (G-space) 
+as collective variable. (npj Computational Materials (accepted)) [arxiv](https://arxiv.org/abs/2012.13266)
 
 `vasp_wrap.py` is a wrapper on the VASP quantum DFT
 code so it can work as a "server" code which LAMMPS drives as a
@@ -13,31 +14,32 @@ library (CSlib), which is included in the LAMMPS distribution in
 lib/message.  As explained below you can choose to exchange data
 between the two programs either via files or sockets (ZMQ).
 
+To make waiting LAMMPS client not consume 100% CPU usage while waiting for MPI operations,
+you can use modified version of CSlib in this repository.
+
+
 ---------------
 
 Requirement
 ----------
-LAMMPS: 29Oct2020 or later  
-[Eigen](http://eigen.tuxfamily.org): C++ library 
+* LAMMPS (29Oct2020 or later)
+* [Eigen](http://eigen.tuxfamily.org) 
 
 ----------------
 
 Building
 --------
 
-Build LAMMPS with its MESSAGE package installed:
+Build LAMMPS with its MESSAGE (OpenMP if needed) package installed:
 
 See the Build extras doc page and its MESSAGE package
-section for details.
+section for details. [doc](https://docs.lammps.org/Build_extras.html)
 
-
-OpenMP parallelization are also supported.  
-See the OPENMP package section for details if needed.
 
 ```bash
-cp -r cslib lammps/lib/message/
+cp -r cslib lammps/lib/message/  # copy modified cslib to lammps
 cd lammps/lib/message
-python Install.py -m -z       # build CSlib with MPI and ZMQ support
+python Install.py -m -z          # build CSlib with MPI and ZMQ support
 cp -r Eigen lammps/src/
 cp pair_mtd.* symmetry_function.h lammps/src
 cd lammps/src
@@ -147,9 +149,6 @@ For example, the commands below can enable both processes (`vasp_wrap.py` and LA
 export PSM2_SHAREDCONTEXTS=YES
 export PSM2_MAX_CONTEXTS_PER_JOB=8
 ```
-
-To make waiting LAMMPS client not consume 100% CPU usage while waiting for MPI operations,
-you can use modified version of CSlib in this repository.
 
 ------------------
 
