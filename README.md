@@ -33,9 +33,8 @@ Building
 --------
 
 Build LAMMPS with its MESSAGE (OpenMP if needed) package installed:
-
 See the Build extras doc page and its MESSAGE package
-section for details. [doc](https://docs.lammps.org/Build_extras.html)
+section for details. [[doc](https://docs.lammps.org/Build_extras.html)]
 
 
 ```bash
