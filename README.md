@@ -1,6 +1,8 @@
-G-metaD can be used to sample training set of neural network potentials 
-via metadynamics, using atom-centered symmetry function vector (G-space) 
-as collective variable. (npj Computational Materials (accepted)) [arxiv](https://arxiv.org/abs/2012.13266)
+G-metaD can be used to sample a training set of machine learning potentials 
+via metadynamics, using an atom-centered symmetry function vector (G-space) 
+as the collective variable.
+
+D. Yoo, J. Jung, W. Jeong, and S. Han, Metadynamics sampling in atomic environment space for collecting training data for machine learning potentials, npj Computational Materials (accepted), [[arxiv](https://arxiv.org/abs/2012.13266)]
 
 `vasp_wrap.py` is a wrapper on the VASP quantum DFT
 code so it can work as a "server" code which LAMMPS drives as a
