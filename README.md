@@ -96,6 +96,25 @@ The `POTCAR` file is a proprietary VASP file, so use one from your VASP installa
 Note that the `POSCAR_template` file should be matched to the LAMMPS
 input script (# of atoms and atom types, box size, etc).
 
+
+```bash
+pair_style mtd 1e-4 1 &
+               Si 0.001 1.0 20 &
+               1 &
+               1.0
+```
+The parameters in pair_style are condition number of covariance matrix, the number of element, symbol, the height and width of bias potential, update interval, the number of type, and the coefficient of bias.
+
+
+If the system consist of two elements such as GeTe, `in.client` looks like,
+```bash
+pair_style mtd 1e-4 2 &
+               Ge 0.001 1.0 20 &
+               Te 0.001 1.0 20 &
+               2 &
+               1.0 1.0
+```
+
 ----------------
 
 To run in client/server mode:
