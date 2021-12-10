@@ -2,7 +2,7 @@ G-metaD can be used to sample a training set of machine learning potentials
 via metadynamics, using an atom-centered symmetry function vector (G-space) 
 as the collective variable.
 
-D. Yoo, J. Jung, W. Jeong, and S. Han, Metadynamics sampling in atomic environment space for collecting training data for machine learning potentials, npj Computational Materials (accepted), [[arxiv](https://arxiv.org/abs/2012.13266)]
+D. Yoo, J. Jung, W. Jeong, and S. Han, Metadynamics sampling in atomic environment space for collecting training data for machine learning potentials, npj Computational Materials **7**, 131 (2021), [[https://doi.org/10.1038/s41524-021-00595-5](https://doi.org/10.1038/s41524-021-00595-5)]
 
 `vasp_wrap.py` is a wrapper on the VASP quantum DFT
 code so it can work as a "server" code which LAMMPS drives as a
@@ -98,7 +98,7 @@ input script (# of atoms and atom types, box size, etc).
 
 ------------------
 
-The parameters in pair_style are condition number of covariance matrix, the number of element, symbol, the height (eV) and width (eV/$\AA$) of bias potential, update interval, the number of type, and the coefficient of bias.
+The parameters in pair_style are condition number of covariance matrix, the number of elements, symbol, the height (eV) and width (eV/Angstrom) of bias potential, update interval, the number of types, and the coefficient of bias.
 
 ```bash
 pair_style mtd 1e-4 1 &
@@ -107,7 +107,7 @@ pair_style mtd 1e-4 1 &
                1.0
 ```
 
-If the system consist of two elements such as GeTe, `in.client` is foollowing:
+If the system consist of two elements such as GeTe, `in.client` is following:
 ```bash
 pair_style mtd 1e-4 2 &
                Ge 0.001 1.0 20 &
