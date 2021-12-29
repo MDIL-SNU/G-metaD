@@ -2,7 +2,7 @@ G-metaD can be used to sample a training set of machine learning potentials
 via metadynamics, using an atom-centered symmetry function vector (G-space) 
 as the collective variable.
 
-D. Yoo, J. Jung, W. Jeong, and S. Han, Metadynamics sampling in atomic environment space for collecting training data for machine learning potentials, npj Computational Materials **7**, 131 (2021), [[https://doi.org/10.1038/s41524-021-00595-5](https://doi.org/10.1038/s41524-021-00595-5)]
+D. Yoo, J. Jung, W. Jeong, and S. Han, Metadynamics sampling in atomic environment space for collecting training data for machine learning potentials, *npj Computational Materials* **7**, 131 (2021), [[https://doi.org/10.1038/s41524-021-00595-5](https://doi.org/10.1038/s41524-021-00595-5)]
 
 `vasp_wrap.py` is a wrapper on the VASP quantum DFT
 code so it can work as a "server" code which LAMMPS drives as a
@@ -56,8 +56,8 @@ Build the CSlib in a form usable by the `vasp_wrapper.py` script:
 
 ```bash
 cd lammps/lib/message/cslib/src
-make shlib            # build serial and parallel shared lib with ZMQ support
-make shlib zmq=no     # build serial and parallel shared lib w/out ZMQ support
+make mpi mode=shlib            # build serial and parallel shared lib with ZMQ support
+make mpi mode=shlib zmq=no     # build serial and parallel shared lib w/out ZMQ support
 ```
 
 This will make a shared library versions of the CSlib, which Python
