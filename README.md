@@ -150,15 +150,15 @@ background.
 File mode of messaging:
 
 ```bash
+python vasp_wrap.py file POSCAR_template "mpirun -np 1 vasp.x" &
 mpirun -np 1 lmp_mpi -v mode file -in in.client
-python vasp_wrap.py file POSCAR_template "mpirun -np 1 vasp.x"
 ```
 
 ZMQ mode of messaging:
 
 ```bash
+python vasp_wrap.py zmq POSCAR_template "mpirun -np 1 vasp.x" &
 mpirun -np 1 lmp_mpi -v mode zmq -in in.client
-python vasp_wrap.py zmq POSCAR_template "mpirun -np 1 vasp.x"
 ```
 
 ---------------
