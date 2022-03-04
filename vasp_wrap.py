@@ -27,10 +27,7 @@
 
 from __future__ import print_function
 from __future__ import division
-import os
 import sys
-import glob
-import shutil
 
 version = sys.version_info[0]
 if version == 3:
@@ -41,6 +38,9 @@ import time
 import xml.etree.ElementTree as ET
 import numpy as np
 from cslib import CSlib
+from glob import glob
+import shutil
+import os
 
 MAX_TRY = 3
 
@@ -294,13 +294,13 @@ def main(argv):
 
                 energy, forces_tmp, virial, converged = vasprun_read()
                 if converged and ntry == 1:
-                    outcar_list = glob.glob("./data/OUTCAR_*")
+                    outcar_list = glob(os.path.join(os.getcwd(), "data/OUTCAR_*"))
                     history = [int(i.split("_")[-1]) for i in outcar_list]
                     if len(history) == 0:
                         history = 0
                     else:
                         history = max(history)
-                    shutil.move("./OUTCAR", "./data/OUTCAR_{}".format(history))
+                    shutil.move("./OUTCAR", "./data/OUTCAR_{}".format(history + 1))
                     break
                 elif converged:
                     shutil.copy2("INCAR_backup", "INCAR")
