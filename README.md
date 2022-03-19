@@ -1,5 +1,8 @@
-Sample LAMMPS MD wrapper on VASP quantum DFT via client/server
-coupling
+G-metaD can be used to sample a training set of machine learning potentials 
+via metadynamics, using an atom-centered symmetry function vector (G-space) 
+as the collective variable.
+
+D. Yoo, J. Jung, W. Jeong, and S. Han, Metadynamics sampling in atomic environment space for collecting training data for machine learning potentials, *npj Computational Materials* **7**, 131 (2021), [[https://doi.org/10.1038/s41524-021-00595-5](https://doi.org/10.1038/s41524-021-00595-5)]
 
 `vasp_wrap.py` is a wrapper on the VASP quantum DFT
 code so it can work as a "server" code which LAMMPS drives as a
@@ -13,19 +16,33 @@ library (CSlib), which is included in the LAMMPS distribution in
 lib/message.  As explained below you can choose to exchange data
 between the two programs either via files or sockets (ZMQ).
 
+To make waiting LAMMPS client not consume 100% CPU usage while waiting for MPI operations,
+you can use modified version of CSlib in this repository.
+
+
+---------------
+
+Requirement
+----------
+* LAMMPS (29Oct2020 or later)
+* [Eigen](http://eigen.tuxfamily.org) 
+
 ----------------
 
 Building
 --------
 
-Build LAMMPS with its MESSAGE package installed:
-
+Build LAMMPS with its MESSAGE (OpenMP if needed) package installed:
 See the Build extras doc page and its MESSAGE package
-section for details.
+section for details. [[doc](https://docs.lammps.org/Build_extras.html)]
+
 
 ```bash
+cp -r cslib lammps/lib/message/  # copy modified cslib to lammps
 cd lammps/lib/message
-python Install.py -m -z       # build CSlib with MPI and ZMQ support
+python Install.py -m -z          # build CSlib with MPI and ZMQ support
+cp -r Eigen lammps/src/
+cp pair_mtd.* symmetry_function.h lammps/src
 cd lammps/src
 make yes-message
 make mpi
@@ -39,8 +56,8 @@ Build the CSlib in a form usable by the `vasp_wrapper.py` script:
 
 ```bash
 cd lammps/lib/message/cslib/src
-make shlib            # build serial and parallel shared lib with ZMQ support
-make shlib zmq=no     # build serial and parallel shared lib w/out ZMQ support
+make mpi mode=shlib            # build serial and parallel shared lib with ZMQ support
+make mpi mode=shlib zmq=no     # build serial and parallel shared lib w/out ZMQ support
 ```
 
 This will make a shared library versions of the CSlib, which Python
@@ -79,6 +96,26 @@ The `POTCAR` file is a proprietary VASP file, so use one from your VASP installa
 Note that the `POSCAR_template` file should be matched to the LAMMPS
 input script (# of atoms and atom types, box size, etc).
 
+------------------
+
+The parameters in pair_style are condition number of covariance matrix, the number of elements, symbol, the height (eV) and width (eV/Angstrom) of bias potential, update interval, the number of types, and the coefficient of bias.
+
+```bash
+pair_style mtd 1e-4 1 &
+               Si 0.001 1.0 20 &
+               1 &
+               1.0
+```
+
+If the system consist of two elements such as GeTe, `in.client` is following:
+```bash
+pair_style mtd 1e-4 2 &
+               Ge 0.001 1.0 20 &
+               Te 0.001 1.0 20 &
+               2 &
+               1.0 1.0
+```
+
 ----------------
 
 To run in client/server mode:
@@ -113,15 +150,15 @@ background.
 File mode of messaging:
 
 ```bash
+python vasp_wrap.py file POSCAR_template "mpirun -np 1 vasp.x" &
 mpirun -np 1 lmp_mpi -v mode file -in in.client
-python vasp_wrap.py file POSCAR_template "mpirun -np 1 vasp.x"
 ```
 
 ZMQ mode of messaging:
 
 ```bash
+python vasp_wrap.py zmq POSCAR_template "mpirun -np 1 vasp.x" &
 mpirun -np 1 lmp_mpi -v mode zmq -in in.client
-python vasp_wrap.py zmq POSCAR_template "mpirun -np 1 vasp.x"
 ```
 
 ---------------
@@ -133,9 +170,6 @@ For example, the commands below can enable both processes (`vasp_wrap.py` and LA
 export PSM2_SHAREDCONTEXTS=YES
 export PSM2_MAX_CONTEXTS_PER_JOB=8
 ```
-
-To make waiting LAMMPS client not consume 100% CPU usage while waiting for MPI operations,
-you can use modified version of CSlib in this repository.
 
 ------------------
 
