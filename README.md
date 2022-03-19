@@ -24,7 +24,7 @@ you can use modified version of CSlib in this repository.
 
 Requirement
 ----------
-* LAMMPS (29Oct2020 or later)
+* LAMMPS (29Oct2020)
 * [Eigen](http://eigen.tuxfamily.org) 
 
 ----------------
@@ -32,7 +32,7 @@ Requirement
 Building
 --------
 
-Build LAMMPS with its MESSAGE (OpenMP if needed) package installed:
+Build LAMMPS with its MESSAGE (OPENMP if needed) package installed:
 See the Build extras doc page and its MESSAGE package
 section for details. [[doc](https://docs.lammps.org/Build_extras.html)]
 
@@ -56,8 +56,8 @@ Build the CSlib in a form usable by the `vasp_wrapper.py` script:
 
 ```bash
 cd lammps/lib/message/cslib/src
-make mpi mode=shlib            # build serial and parallel shared lib with ZMQ support
-make mpi mode=shlib zmq=no     # build serial and parallel shared lib w/out ZMQ support
+make shlib            # build serial and parallel shared lib with ZMQ support
+make shlib zmq=no     # build serial and parallel shared lib w/out ZMQ support
 ```
 
 This will make a shared library versions of the CSlib, which Python

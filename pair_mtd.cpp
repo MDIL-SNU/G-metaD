@@ -593,6 +593,12 @@ void PairMTD::read_file(char *fname) {
       isym++;
       if (isym == nsym) {
         /* skip unnecessary information */
+        if (comm->me == 0) {
+          ptr = fgets(line, MAXLINE, fp);
+          while (strcmp("\n", ptr) != 0) {
+            ptr = fgets(line, MAXLINE, fp);
+          }
+        }
         stats = 1;
       }
     }
