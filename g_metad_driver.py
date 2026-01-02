@@ -106,3 +106,55 @@ class VASPCalculator:
         except Exception as e:
             print(f"Error reading vasprun.xml: {e}")
             return 0, [], [], False
+
+    def run_calculation(self, coords, box, types):
+        self.write_poscar(coords, box, types)
+
+        ntry = 0
+        while True:
+            ntry += 1
+            try:
+                subprocess.check_output(self.vasp_cmd, stderr=subprocess.STDOUT, shell=True)
+                energy, forces_sorted_by_type, virial, converged = self.read_vasprun()
+
+                if converged:
+                    self._backup_outcar()
+                    if ntry > 1:
+                        shutil.copy2("INCAR_backup", INCAR)
+                        break
+                else:
+                    print(f"VASP Warning: Step failed convergence (Attempt {ntry})")
+                    if ntry >= self.max_try:
+                        print("VASP Error: Max retries reached.")
+                        sys.exit(1)
+
+                    self._modify_incar_for_retry()
+
+            except subprocess.CalledProcessError:
+                if ntry >= self.max_try:
+                    sys.exit(1)
+                time.sleep(10)
+
+            atom_indices = list(range(self.natoms))
+            sorted_indices = sorted(atom_indices, key=lambda k: types[k])
+
+            forces_ordered = [0.0] * (self.natoms * 3)
+            for i, original_idx in enumerate(sorted_indices):
+                forces_ordered[3 * original_idx + 0] = forces_sorted_by_type[3 * i + 0]
+                forces_ordered[3 * original_idx + 1] = forces_sorted_by_type[3 * i + 1]
+                forces_ordered[3 * original_idx + 2] = forces_sorted_by_type[3 * i + 2]
+
+            return energy, forces_ordered, virial
+
+    def _backup_outcar(self):
+        outcars = glob("data/OUTCAR_*")
+        idx = len(outcars)
+        if not os.path.isdir("data"):
+            os.mkdir("data")
+        shutil.move("OUTCAR", f"data/OUTCAR_{idx}")
+
+    def _modify_incar_for_retry(self):
+        print("MOdifying INCAR for retry (Mixing parameters)...")
+        shutil.copy2("INCAR", "INCAR_backup")
+        with open("INCAR", "a") as f:
+            f.write("\nAMIX = 0.2\nBMIX = 0.0001\n")
