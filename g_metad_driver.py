@@ -10,8 +10,33 @@ from glob import glob
 import mdi
 
 
-class VASPCalculator:
+# For MLFF
+try:
+    from ase import Atoms
+    from ase.calculators.calculator import Calculator
+    # Example: Sevennet 
+    from sevenn.calculator import SevenNetCalculator
+except ImportError:
+    pass
+
+
+class MDICalculator:
+    def __init__(self):
+        self.natoms = 0
+        self.ntypes = 0
+        self.box = [0.0] * 9
+        self.natoms_per_type = []
+
+    def run_calculation(self, coords, box, types):
+        """
+        Returns: energy, forces, virial
+        """
+        raise NotImplementedError
+
+
+class VASPCalculator(MDICalculator):
     def __init__(self, vasp_cmd, poscar_template="POSCAR_template", max_try=4):
+        super().__init__()
         self.vasp_cmd = vasp_cmd
         self.poscar_template = poscar_template
         self.max_try = max_try
@@ -30,7 +55,6 @@ class VASPCalculator:
         return natoms, ntypes, box, natoms_per_type
 
     def write_poscar(self, coords, box, types):
-        """Write POSCAR based on current coordinates from LAMMPS"""
         with open(self.poscar_template, "r") as f:
             template = f.readlines()
 
@@ -57,21 +81,20 @@ class VASPCalculator:
                     'y': coords[3*i+1],
                     'z': coords[3*i+2]
                 })
-
             atom_data.sort(key=lambda x: x['type'])
-
             for atom in atom_data:
                 f.write(f" {atom['x']:12.8f} {atom['y']:12.8f} {atom['z']:12.8f}\n")
 
     def read_vasprun(self):
         """Parse vasprun.xml for energy, forces, virial"""
         try:
+            if not os.path.exists("vasprun.xml"):
+                return 0, [], [], False
             tree = ET.parse("vasprun.xml")
             root = tree.getroot()
             calcs = root.findall("calculation")
             if not calcs:
                 return 0, [], [], False
-
             last_calc = calcs[-1]
             scsteps = last_calc.findall("scstep")
             converged = True
@@ -96,12 +119,12 @@ class VASPCalculator:
                 if v.attrib["name"] == "stress":
                     for line in v.findall("v"):
                         stress.append([float(x) for x in line.text.split()])
-            virial[0] = stress[0][0]
-            virial[1] = stress[1][1]
-            virial[2] = stress[2][2]
-            virial[3] = 0.5 * (stress[0][1] + stress[1][0])
-            virial[4] = 0.5 * (stress[0][2] + stress[2][0])
-            virial[5] = 0.5 * (stress[1][2] + stress[2][1])
+            virial[0] = stress[0][0] * 1000.0
+            virial[1] = stress[1][1] * 1000.0
+            virial[2] = stress[2][2] * 1000.0
+            virial[3] = 0.5 * (stress[0][1] + stress[1][0]) * 1000.0
+            virial[4] = 0.5 * (stress[0][2] + stress[2][0]) * 1000.0
+            virial[5] = 0.5 * (stress[1][2] + stress[2][1]) * 1000.0
 
             return e_free, forces, virial, converged
 
@@ -193,6 +216,31 @@ class VASPCalculator:
         with open("INCAR", "w") as f:
             f.writelines(new_lines) 
 
+
+class MLFFCalculator(MDICalculator):
+    def __init__(self, model_path, device='cuda'):
+        super().__init__()
+        # Load an MLFF model
+        # self.calc = MACECalculator(model_paths=model_path, device=device)
+        self.calc = SevenNetCalculator(model='7net-omni', modal='mpa')
+        
+    def run_calculation(self, coords, box, types):
+        cell = np.array(box).reshape(3, 3)
+        pos = np.array(coords).reshape(-1, 3)
+
+        atoms = Atoms(numbers=types, positions=pos, cell=cell, pbc=True)
+        atoms.calc = self.calc
+
+        energy = atoms.get_potential_energy()
+        forces = atoms.get_forces().flatten().tolist()
+        stress = atoms.get_stress(voigt=False) * 160217.66
+        virial = [
+            stress[0, 0], stress[1, 1], stress[2, 2],
+            stress[0, 1], stress[0, 2], stress[1, 2]
+        ]
+
+        return energy, forces, virial
+
 # ==================
 # Main MDI Driver
 # ==================
@@ -248,8 +296,12 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MDI Python Driver for G-metaD")
-    parser.add_argument("--mdi", required=True, type=str, help="MDI connection string")
+    parser.add_argument("--mdi", required=True, type=str, help="MDI info")
+    parser.add_argument("--calculator", type=str, choices=['vasp', 'mlff'], default='vasp', help="Choose calculator backend: 'vasp' or 'mlff'")
+
     parser.add_argument("--vasp_cmd", type=str, default="mpirun -np 32 vasp_std")
+    parser.add_argument("--ml_model", type=
+
     parser.add_argument("--steps", type=int, default=1000, help="MD steps")
     parser.add_argument("--restart_freq", type=int, default=100, help="Restart frequency")
     parser.add_argument("--poscar_template", type=str, default="POSCAR_template", help="POSCAR template path")
