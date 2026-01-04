@@ -636,11 +636,10 @@ void PairMTD::read_file(char *fname) {
 ------------------------------------------------------------------------- */
 
 void PairMTD::init_style() {
-  int irequest;
-
-  irequest = neighbor->request(this, instance_me);
-  neighbor->requests[irequest]->half = 0;
-  neighbor->requests[irequest]->full = 1;
+  if (force->newton_pair == 0) {
+    error->all(FLERR, "Pair style mtd requires newton pair on");
+  }
+  neighbor->add_request(this, NeighConst::REQ_FULL);
 }
 
 /* ----------------------------------------------------------------------
@@ -657,7 +656,7 @@ double PairMTD::init_one(int i, int j) {
 ------------------------------------------------------------------------- */
 
 void PairMTD::write_restart(FILE *fp) {
-    write_restart_setting(fp);
+    write_restart_settings(fp);
     // Restart data format:
     // 1. Number of elements (int)
     // For each element:
