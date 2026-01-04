@@ -444,6 +444,9 @@ void PairMTD::coeff(int narg, char **arg) {
                                      // elements.
   for (i = 0; i < nelements + 1; i++) {
     biases[i].num_data = 0;
+    biases[i].slists = NULL;
+    biases[i].powtwo = NULL;
+    biases[i].powint = NULL;
   }
 
   // read potential file and initialize potential parameters
@@ -484,7 +487,6 @@ void PairMTD::read_file(char *fname) {
   int eof = 0;
   int stats = 0;
   int nnet = nelements;
-  int max_sym_line = 6;
   char **p_elem = new char *[nelements];
   int valid_count = 0;
   bool valid = false;
@@ -525,7 +527,10 @@ void PairMTD::read_file(char *fname) {
     } else if (stats == 1) {  // potential element setting
       tstr = strtok(line, " \t\n\r\f");
       char *t_elem = strtok(NULL, " \t\n\r\f");
-      double t_cut = atof(strtok(NULL, " \t\n\r\f"));
+      char *t_cut_str = strtok(NULL, " \t\n\r\f");
+      if (t_cut_str == NULL) error->all(FLERR, "Invalid format in potential file");
+      double t_cut = atof(t_cut_str);
+
       if (t_cut > cutmax) cutmax = t_cut;
       nnet = nelements;
       for (i = 0; i < nelements; i++) {
@@ -595,7 +600,7 @@ void PairMTD::read_file(char *fname) {
         /* skip unnecessary information */
         if (comm->me == 0) {
           ptr = fgets(line, MAXLINE, fp);
-          while (strcmp("\n", ptr) != 0) {
+          while (ptr != NULL && strcmp("\n", ptr) != 0 && strcmp("\r\n", ptr) != 0) {
             ptr = fgets(line, MAXLINE, fp);
           }
         }
