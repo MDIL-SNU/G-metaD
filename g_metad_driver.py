@@ -27,6 +27,23 @@ class MDICalculator:
         self.box = [0.0] * 9
         self.natoms_per_type = []
 
+    def _parse_template(self):
+        if not os.path.exists(self.poscar_template):
+            print(f"Error: {self.poscar_template} not found.")
+            sys.exit(1)
+
+        with open(self.poscar_template, "r") as f:
+            lines = f.readlines()
+
+        try:
+            self.elements = lines[5].split()
+            self.natoms_per_type = [int(x) for x in lines[6].split()]
+            self.ntypes = len(self.natoms_per_type)
+            self.natoms = sum(self.natoms_per_type)
+        except IndexError:
+            print("Error: POSCAR_template format invalid. Ensure VASP 5.x format.")
+            sys.exit(1)
+
     def run_calculation(self, coords, box, types):
         """
         Returns: energy, forces, virial
@@ -35,24 +52,11 @@ class MDICalculator:
 
 
 class VASPCalculator(MDICalculator):
-    def __init__(self, vasp_cmd, poscar_template="POSCAR_template", max_try=4):
-        super().__init__()
-        self.vasp_cmd = vasp_cmd
-        self.poscar_template = poscar_template
-        self.max_try = max_try
-        self.natoms, self.ntypes, _, self.natoms_per_type = self.vasp_setup()
-
-    def _vasp_setup(self):
-        if not os.path.exists(self.poscar_template):
-            print(f"Error: {self.poscar_template} not found.")
+    def __init__(self, vasp_cmd, poscar_template, max_try=4):
+        super().__init__(poscar_template)
             sys.exit(1)
-        with open(self.poscar_template, "r") as f:
-            lines = f.readlines()
-        natoms_per_type = [int(x) for x in lines[6].split()]
-        ntypes = len(natoms_per_type)
-        natoms = sum(natoms_per_type)
-        box = [0.0]*9
-        return natoms, ntypes, box, natoms_per_type
+        self.vasp_cmd = vasp_cmd
+        self.max_try = max_try
 
     def write_poscar(self, coords, box, types):
         with open(self.poscar_template, "r") as f:
@@ -62,12 +66,10 @@ class VASPCalculator(MDICalculator):
             # Header from template
             f.write(template[0])
             f.write(template[1])
-
             # Box is usually [lx, ly, lz, xy, xz, yz, origin_x, origin_y, origin_z]
             f.write(f" {box[0]:12.8f} {box[1]:12.8f} {box[2]:12.8f}\n")
             f.write(f" {box[3]:12.8f} {box[4]:12.8f} {box[5]:12.8f}\n")
             f.write(f" {box[6]:12.8f} {box[7]:12.8f} {box[8]:12.8f}\n")
-
             f.write(template[5])
             f.write(template[6])
             f.write("Cartesian\n")
@@ -82,6 +84,7 @@ class VASPCalculator(MDICalculator):
                     'z': coords[3*i+2]
                 })
             atom_data.sort(key=lambda x: x['type'])
+
             for atom in atom_data:
                 f.write(f" {atom['x']:12.8f} {atom['y']:12.8f} {atom['z']:12.8f}\n")
 
@@ -218,17 +221,19 @@ class VASPCalculator(MDICalculator):
 
 
 class MLFFCalculator(MDICalculator):
-    def __init__(self, model_path, device='cuda'):
-        super().__init__()
+    def __init__(self, model_path, poscar_template):
+        super().__init__(poscar_template)
         # Load an MLFF model
-        # self.calc = MACECalculator(model_paths=model_path, device=device)
+        # Example: SevenNet
         self.calc = SevenNetCalculator(model='7net-omni', modal='mpa')
         
     def run_calculation(self, coords, box, types):
         cell = np.array(box).reshape(3, 3)
         pos = np.array(coords).reshape(-1, 3)
 
-        atoms = Atoms(numbers=types, positions=pos, cell=cell, pbc=True)
+        symbols = [self.elements[t-1] for t in types]
+
+        atoms = Atoms(symbols=symbols, positions=pos, cell=cell, pbc=True)
         atoms.calc = self.calc
 
         energy = atoms.get_potential_energy()
@@ -254,12 +259,12 @@ def main(args):
 
     comm = mdi.MDI_Accept_Communicator()
 
-    vasp = VASPCalculator(
-        vasp_cmd=args.vasp_cmd,
-        poscar_template=args.poscar_template,
-        max_try=args.max_try
-    )
+    if args.calculator == "vasp":
+        calc = VASPCalculator(args.vasp_cmd, args.poscar_template, max_try=args.max_try)
+    else:
+        calc = MLFFCalculator(args.ml_model, args.poscar_template)
 
+    # Initial Info
     mdi.MDI_Send_Command("<NATOMS", comm)
     natoms = mdi.MDI_Recv(1, mdi.MDI_INT, comm)
     mdi.MDI_Send_Command("<NTYPES", comm)
@@ -268,7 +273,6 @@ def main(args):
     atom_types = mdi.MDI_Recv(natoms, mdi.MDI_INT, comm)
 
     print(f"Driver Connected. AToms: {natoms}, Types: {ntypes}")
-    print(f"VASP Command: {args.vasp_cmd}")
 
     for step in range(args.steps):
         mdi.MDI_Send_Command("<COORDS", comm)
@@ -276,7 +280,7 @@ def main(args):
         mdi.MDI_Send_Command("<CELL", comm)
         cell = mdi.MDI_Recv(9, mdi.MDI_DOUBLE, comm)
 
-        energy, forces, virial = vasp.run_calculation(coords, cell, atom_types)
+        energy, forces, virial = calc.run_calculation(coords, cell, atom_types)
 
         mdi.MDI_Send_Command(">FORCES", comm)
         mdi.MDI_Send(forces, natoms * 3, mdi.MDI_DOUBLE, comm)
@@ -284,7 +288,7 @@ def main(args):
         mdi.MDI_Send([energy], 1, mdi.MDI_DOUBLE, comm)
         mdi.MDI_Send_Command("TRAJ", comm)
 
-        print(f"Step {step+1}/{args.steps} Completed. E={energy:.4f}")
+        print(f"Step {step+1}/{args.steps} E={energy:.4f}")
 
         if (step + 1) & args.restart_freq == 0:
             cmd = f"write_restart restart.{step+1}.bin"
@@ -296,11 +300,12 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MDI Python Driver for G-metaD")
-    parser.add_argument("--mdi", required=True, type=str, help="MDI info")
+    parser.add_argument("--mdi", required=True, type=str, help="MDI connection info")
+    parser.add_argument("--poscar_template", type=str, default="POSCAR_template", help="Path to POSCAR template")
     parser.add_argument("--calculator", type=str, choices=['vasp', 'mlff'], default='vasp', help="Choose calculator backend: 'vasp' or 'mlff'")
 
     parser.add_argument("--vasp_cmd", type=str, default="mpirun -np 32 vasp_std")
-    parser.add_argument("--ml_model", type=
+    parser.add_argument("--ml_model", type=str, default="model.pt")
 
     parser.add_argument("--steps", type=int, default=1000, help="MD steps")
     parser.add_argument("--restart_freq", type=int, default=100, help="Restart frequency")
