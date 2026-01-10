@@ -13,8 +13,6 @@ export OMP_NUM_THREADS=1
 
 PORT=8021
 TOTAL_CORES=32
-STEPS=1000
-RESTART_FREQ=100
 POSCAR_TEMPLATE="POSCAR_template"
 CALC_MODE="vasp"
 VASP_CMD="mpirun -np 28 /TGM/Apps/VASP/VASP_BIN/6.4.2/vasp.6.4.2.avx512.std.x"
@@ -23,43 +21,36 @@ LMP_BIN="lmp"
 
 
 cleanup() {
-
-    sleep 5
-
-    if [[ -n "DRIVER_PID" ]]; then
-        kill -TERM $DRIVER_PID 2>/dev/null
-    fi
-    if [[ -n "LAMMPS_PID" ]]; then
-        kill -TERM $LAMMPS_PID 2>/dev/null
-    fi
+    if [[ -n "LAMMPS_PID" ]]; then kill -TERM $LAMMPS_PID 2>/dev/null; fi
+    if [[ -n "ENGINE_PID" ]]; then kill -TERM $ENGINE_PID 2>/dev/null; fi
 }
-
 trap cleanup EXIT INT TERM
  
-python -u g_metad_driver.py \
-    --mdi "-role DRIVER -name driver -method TCP -port ${PORT}" \
-    --poscar_template "${POSCAR_TEMPLATE}" \
-    --calculator ${CALC_MODE} \
-    --vasp_cmd "${VASP_CMD}" \
-    --ml_model "${ML_MODEL_PATH}" \
-    --steps ${STEPS} \
-    --restart_freq ${RESTART_FREQ} \
-    --max_try 4 \
-    1> driver.log \
-    2> driver.err &
-
-DRIVER_PID=$!
-
-sleep 5
-
+echo "Starting LAMMPS (Driver)..."
 mpirun -np 4 lmp \
-    -mdi "-role ENGINE -name LAMMPS -method TCP -port 8021 -hostname localhost" \
+    -mdi "-role DRIVER -name LAMMPS -method TCP -port ${PORT}" \
     -in in.client \
     > lammps.log 2>&1 &
 
 LAMMPS_PID=$!
+echo "LAMMPS PID: $LAMMPS_PID"
 
-wait -n $DRIVER_PID $LAMMPS_PID
+sleep 5
+
+echo "Starting Python Engine..."
+python -u g_metad_engine.py \
+    --mdi "-role ENGINE -name ${CALC_MODE} -method TCP -port ${PORT} -hostname localhost"\
+    --poscar_template "${POSCAR_TEMPLATE}" \
+    --calculator ${CALC_MODE} \
+    --vasp_cmd "${VASP_CMD}" \
+    --ml_model "${ML_MODEL_PATH}" \
+    --max_try 4 \
+    1> engine.log 2> engine.err &
+
+ENGINE_PID=$!
+echo "Python Engine PID: $ENGINE_PID"
+
+wait -n $LAMMPS_PID $ENGINE_PID
 EXIT_CODE=$?
 
 exit $EXIT_CODE

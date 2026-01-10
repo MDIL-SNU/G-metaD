@@ -4,7 +4,6 @@ import shutil
 import subprocess
 import time
 import argparse
-import re
 import xml.etree.ElementTree as ET
 from glob import glob
 import mdi
@@ -12,11 +11,16 @@ import mdi
 # For MLFF
 try:
     from ase import Atoms
-    from ase.calculators.calculator import Calculator
     # Example: Sevennet 
     from sevenn.calculator import SevenNetCalculator
 except ImportError:
     pass
+
+BOHR_TO_ANG = 0.52917721067
+ANG_TO_BOHR = 1.0 / BOHR_TO_ANG
+EV_TO_HARTREE = 0.03674932248
+HARTREE_TO_EV = 1.0 / EV_TO_HARTREE
+KBAR_TO_EV_PER_ANG3 = 0.00062415091
 
 class MDICalculator:
     def __init__(self, poscar_template):
@@ -28,7 +32,6 @@ class MDICalculator:
         if not os.path.exists(self.poscar_template):
             print(f"Error: {self.poscar_template} not found.")
             sys.exit(1)
-
         with open(self.poscar_template, "r") as f:
             lines = f.readlines()
 
@@ -38,10 +41,14 @@ class MDICalculator:
             self.ntypes = len(self.natoms_per_type)
             self.natoms = sum(self.natoms_per_type)
         except IndexError:
-            print("Error: POSCAR_template format invalid. Ensure VASP 5.x format.")
+            print("Error: POSCAR_template format invalid.")
             sys.exit(1)
 
     def run_calculation(self, coords, box, types):
+        """
+        Input: coords(Angstrom), box(Angstrom)
+        Output: energy(eV), forces(eV/A), virial(eV/A^3)
+        """
         raise NotImplementedError
 
 
@@ -54,9 +61,7 @@ class VASPCalculator(MDICalculator):
     def write_poscar(self, coords, box, types):
         with open(self.poscar_template, "r") as f:
             template = f.readlines()
-
         with open("POSCAR", "w") as f:
-            # Header from template
             f.write(template[0])
             f.write(template[1])
             f.write(f" {box[0]:12.8f} {box[1]:12.8f} {box[2]:12.8f}\n")
@@ -66,10 +71,22 @@ class VASPCalculator(MDICalculator):
             f.write(template[6])
             f.write("Cartesian\n")
 
+            current_types = types if types else []
+
+            if not current_types:
+                current_types = []
+                for type_idx, count in enumerate(self.natoms_per_type):
+                    current_types.extend([type_idx + 1] * count)
+
+            if len(current_types) != self.natoms:
+                print(f"Error: Type mismatch! Expected {self.natoms}, got {len(current_types)}", flush=True)
+                sys.exit(1)
+
             atom_data = []
             for i in range(self.natoms):
+                t = current_types[i]
                 atom_data.append({
-                    'type': types[i],
+                    'type': t,
                     'x': coords[3*i],
                     'y': coords[3*i+1],
                     'z': coords[3*i+2]
@@ -101,8 +118,9 @@ class VASPCalculator(MDICalculator):
 
             # Forces & stress
             forces = []
-            virial = [0.0] * 6
-            stress = []
+            tmp_stress = []
+            stress = [0.0] * 9
+
             varrays = last_calc.findall("varray")
             for v in varrays:
                 if v.attrib["name"] == "forces":
@@ -110,21 +128,59 @@ class VASPCalculator(MDICalculator):
                         forces.extend([float(x) for x in line.text.split()])
                 if v.attrib["name"] == "stress":
                     for line in v.findall("v"):
-                        stress.append([float(x) for x in line.text.split()])
+                        tmp_stress.append([float(x) for x in line.text.split()])
             
-            if len(stress) >= 3:
-                virial[0] = stress[0][0] * 1000.0
-                virial[1] = stress[1][1] * 1000.0
-                virial[2] = stress[2][2] * 1000.0
-                virial[3] = 0.5 * (stress[0][1] + stress[1][0]) * 1000.0
-                virial[4] = 0.5 * (stress[0][2] + stress[2][0]) * 1000.0
-                virial[5] = 0.5 * (stress[1][2] + stress[2][1]) * 1000.0
+            s = tmp_stress
+            stress[0] = s[0][0] * KBAR_TO_EV_PER_ANG3
+            stress[4] = s[1][1] * KBAR_TO_EV_PER_ANG3
+            stress[8] = s[2][2] * KBAR_TO_EV_PER_ANG3
+            stress[1] = s[0][1] * KBAR_TO_EV_PER_ANG3
+            stress[5] = s[1][2] * KBAR_TO_EV_PER_ANG3
+            stress[2] = s[2][0] * KBAR_TO_EV_PER_ANG3
+            stress[3] = s[0][1] * KBAR_TO_EV_PER_ANG3
+            stress[7] = s[1][2] * KBAR_TO_EV_PER_ANG3
+            stress[6] = s[2][0] * KBAR_TO_EV_PER_ANG3
 
-            return e_free, forces, virial, converged
+            return e_free, forces, stress, converged
 
         except Exception as e:
             print(f"Error reading vasprun.xml: {e}", flush=True)
             return 0, [], [], False
+
+    def _backup_outcar(self):
+        outcars = glob("data/OUTCAR_*")
+        idx = len(outcars)
+        if not os.path.isdir("data"):
+            os.mkdir("data")
+        if os.path.exists("OUTCAR"):
+            shutil.move("OUTCAR", f"data/OUTCAR_{idx}")
+
+    def _apply_convergence_strategy(self, attempt):
+        print(f"Applying convergence strategy for attempt {attempt}...", flush=True)
+        shutil.copy2("INCAR_step_start", "INCAR")
+
+        with open("INCAR", "r") as f:
+            lines = f.readlines()
+
+        new_lines = []
+        for line in lines:
+            if "ALGO" in line or "AMIX" in line or "BMIX" in line:
+                continue
+            new_lines.append(line)
+
+        if attempt == 2:
+            new_lines.append("ALGO = Normal\n")
+
+        elif attempt == 3:
+            new_lines.append("ALGO = Normal\n")
+            new_lines.append("AMIX = 0.2\n")
+            new_lines.append("BMIX = 0.0001\n")
+
+        else:
+            new_lines.append("ALGO = All\n")
+
+        with open("INCAR", "w") as f:
+            f.writelines(new_lines) 
 
     def run_calculation(self, coords, box, types):
         self.write_poscar(coords, box, types)
@@ -149,10 +205,17 @@ class VASPCalculator(MDICalculator):
                     shutil.copy2("INCAR_step_start", "INCAR")
                     
                     atom_indices = list(range(self.natoms))
-                    sorted_indices = sorted(atom_indices, key=lambda k: types[k])
+                    current_types = types if types else []
+                    if not current_types:
+                        current_types = []
+                        for type_idx, count in enumerate(self.natoms_per_type):
+                            current_types.extend([type_idx + 1] * count)
+
+                    sorted_indices = sorted(atom_indices, key=lambda k: current_types[k])
                     forces_ordered = [0.0] * (self.natoms * 3)
+
                     for i, original_idx in enumerate(sorted_indices):
-                        if (3*i + 2) < len(forces_sorted): # 안전장치
+                        if (3*i + 2) < len(forces_sorted):
                             forces_ordered[3 * original_idx + 0] = forces_sorted[3 * i + 0]
                             forces_ordered[3 * original_idx + 1] = forces_sorted[3 * i + 1]
                             forces_ordered[3 * original_idx + 2] = forces_sorted[3 * i + 2]
@@ -175,50 +238,12 @@ class VASPCalculator(MDICalculator):
                     sys.exit(1)
                 time.sleep(10)
 
-    def _backup_outcar(self):
-        outcars = glob("data/OUTCAR_*")
-        idx = len(outcars)
-        if not os.path.isdir("data"):
-            os.mkdir("data")
-        if os.path.exists("OUTCAR"):
-            shutil.move("OUTCAR", f"data/OUTCAR_{idx}")
-
-    def _apply_convergence_strategy(self, attempt):
-        print(f"Applying convergence strategy for attempt {attempt}...", flush=True)
-        shutil.copy2("INCAR_step_start", "INCAR")
-
-        with open("INCAR", "r") as f:
-            lines = f.readlines()
-
-        new_lines = []
-        for line in lines:
-            if "ALGO" in line or "AMIX" in line or "BMIX" in line:
-                continue
-            new_lines.append(line)
-
-        if attempt == 2:
-            print(" -> Strategy: Conservative Mixing", flush=True)
-            new_lines.append("ALGO = Fast\n")
-            new_lines.append("AMIX = 0.2\n")
-            new_lines.append("BMIX = 0.0001\n")
-
-        elif attempt == 3:
-            print(" -> Strategy: ALGO = Normal", flush=True)
-            new_lines.append("ALGO = Normal\n")
-            new_lines.append("AMIX = 0.4\n")
-            new_lines.append("BMIX = 1.0\n")
-
-        else:
-            print(" -> Strategy: ALGO = All", flush=True)
-            new_lines.append("ALGO = All\n")
-
-        with open("INCAR", "w") as f:
-            f.writelines(new_lines) 
-
 
 class MLFFCalculator(MDICalculator):
     def __init__(self, model_path, poscar_template):
         super().__init__(poscar_template)
+        # 'model_path' can be used like
+        # self.calc = Calculator(model_path)
         self.calc = SevenNetCalculator(model='7net-omni', modal='mpa')
         
     def run_calculation(self, coords, box, types):
@@ -229,76 +254,85 @@ class MLFFCalculator(MDICalculator):
         atoms.calc = self.calc
         energy = atoms.get_potential_energy()
         forces = atoms.get_forces().flatten().tolist()
-        stress = atoms.get_stress(voigt=False) * 160217.66
-        virial = [
-            stress[0, 0], stress[1, 1], stress[2, 2],
-            stress[0, 1], stress[0, 2], stress[1, 2]
-        ]
-        return energy, forces, virial
+        tmp_stress = atoms.get_stress(voigt=False)
+        if tmp_stress.shape == (3, 3):
+            stress = tmp_stress.flatten().tolist()
+        else:
+            s = tmp_stress
+            stress = [s[0], s[5], s[4], s[5], s[1], s[3], s[4], s[3], s[2]]
+
+        return energy, forces, stress
+
 
 def main(args):
-    print("Driver Started. Connecting to MDI...", flush=True)
+    print("Engine Started. Connecting to Driver...", flush=True)
     try:
-        try:
-            mdi.MDI_Init(args.mdi)
-        except Exception as e:
-            print(f"MDI Init failed: {e}", flush=True)
-            sys.exit(1)
-
+        mdi.MDI_Init(args.mdi)
+        mdi.MDI_Register_Node("@DEFAULT")
+        mdi.MDI_Register_Command("@DEFAULT", ">NATOMS")
+        mdi.MDI_Register_Command("@DEFAULT", ">TYPES")
+        mdi.MDI_Register_Command("@DEFAULT", "<STRESS")
         comm = mdi.MDI_Accept_Communicator()
-        print("MDI Communicator Accepted.", flush=True)
+        print("MDI Connected.", flush=True)
 
         if args.calculator == "vasp":
             calc = VASPCalculator(args.vasp_cmd, args.poscar_template, max_try=args.max_try)
         else:
             calc = MLFFCalculator(args.ml_model, args.poscar_template)
 
-        # Initial Info
-        mdi.MDI_Send_Command("<NATOMS", comm)
-        natoms = mdi.MDI_Recv(1, mdi.MDI_INT, comm)
-        
-        mdi.MDI_Send_Command("<TYPES", comm)
-        atom_types = mdi.MDI_Recv(natoms, mdi.MDI_INT, comm)
-        ntypes = max(atom_types)
+        natoms = calc.natoms
+        coords = None
+        cell = None
+        atom_types = []
 
-        mdi.MDI_Send_Command("@INIT_MD", comm)
-        print(f"Driver Connected. Atoms: {natoms}, Types: {ntypes}", flush=True)
+        energy = 0.0
+        forces = [0.0] * (natoms * 3)
+        virial = [0.0] * 6
 
-        for step in range(args.steps):
-            mdi.MDI_Send_Command("<CELL", comm)
-            cell = mdi.MDI_Recv(9, mdi.MDI_DOUBLE, comm)
-            mdi.MDI_Send_Command("@FORCES", comm)
-            mdi.MDI_Send_Command("<COORDS", comm)
-            coords = mdi.MDI_Recv(natoms * 3, mdi.MDI_DOUBLE, comm)
+        calc_needed = False
 
-            energy, forces, virial = calc.run_calculation(coords, cell, atom_types)
+        while True:
+            cmd = mdi.MDI_Recv_Command(comm)
 
-            mdi.MDI_Send_Command(">FORCES", comm)
-            mdi.MDI_Send(forces, natoms * 3, mdi.MDI_DOUBLE, comm)
-            mdi.MDI_Send_Command(">ENERGY", comm)
-            mdi.MDI_Send([energy], 1, mdi.MDI_DOUBLE, comm)
-            mdi.MDI_Send_Command("@ENDSTEP", comm)
+            if cmd == ">NATOMS":
+                natoms = mdi.MDI_Recv(1, mdi.MDI_INT, comm)
+            elif cmd == ">TYPES":
+                atom_types = mdi.MDI_Recv(natoms, mdi.MDI_INT, comm)
+            elif cmd == ">CELL":
+                cell_mdi = mdi.MDI_Recv(9, mdi.MDI_DOUBLE, comm)
+                calc_needed = True
+            elif cmd == ">COORDS":
+                coords_mdi = mdi.MDI_Recv(natoms * 3, mdi.MDI_DOUBLE, comm)
+                calc_needed = True
 
-            print(f"Step {step+1}/{args.steps} E={energy:.4f}", flush=True)
+            elif cmd in ["<FORCES", "<ENERGY", "<STRESS"]:
+                if calc_needed:
+                    coords = [c * BOHR_TO_ANG for c in coords_mdi]
+                    cell = [c * BOHR_TO_ANG for c in cell_mdi]
 
-            mdi.MDI_Send_Command("@DEFAULT", comm)
-            if (step + 1) % args.restart_freq == 0:
-                cmd = f"write_restart restart.{step+1}.bin"
-                mdi.MDI_Send_Command("<COMMAND", comm)
-                mdi.MDI_Send(cmd, len(cmd), mdi.MDI_CHAR, comm)
+                    energy, forces, stress = calc.run_calculation(coords, cell, atom_types)
 
-        mdi.MDI_Send_Command("EXIT", comm)
+                    energy_mdi = energy * EV_TO_HARTREE
+                    forces_mdi = [f * EV_TO_HARTREE * BOHR_TO_ANG for f in forces]
+                    stress_mdi = [-1 * s * EV_TO_HARTREE * (BOHR_TO_ANG ** 3) for s in stress]
+                    calc_needed = False
+
+                if cmd == "<FORCES":
+                    mdi.MDI_Send(forces_mdi, natoms * 3, mdi.MDI_DOUBLE, comm)
+                elif cmd == "<ENERGY":
+                    mdi.MDI_Send([energy_mdi], 1, mdi.MDI_DOUBLE, comm)
+                elif cmd == "<STRESS":
+                    mdi.MDI_Send(stress_mdi, 9, mdi.MDI_DOUBLE, comm)
+
+            elif cmd == "EXIT":
+                print("Engine Exit.", flush=True)
+                break
+
+            else:
+                pass
 
     except Exception as e:
-        print(f"\nCRITICAL DRIVER ERROR: {e}", file=sys.stderr, flush=True)
-        import traceback
-        traceback.print_exc()
-
-        try:
-            mdi.MDI_Send_Command("EXIT", comm)
-        except:
-            pass
-
+        print(f"Engine Error: {e}", flush=True)
         sys.exit(1)
 
 if __name__ == "__main__":
@@ -308,8 +342,6 @@ if __name__ == "__main__":
     parser.add_argument("--calculator", type=str, choices=['vasp', 'mlff'], default='vasp', help="Choose calculator backend")
     parser.add_argument("--vasp_cmd", type=str, default="mpirun -np 32 vasp_std")
     parser.add_argument("--ml_model", type=str, default="model.pt")
-    parser.add_argument("--steps", type=int, default=1000, help="MD steps")
-    parser.add_argument("--restart_freq", type=int, default=100, help="Restart frequency")
     parser.add_argument("--max_try", type=int, default=4, help="Max VASP retries per step")
 
     args = parser.parse_args()

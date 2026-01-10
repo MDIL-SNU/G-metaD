@@ -12,6 +12,8 @@ pair_style mtd 1e-4 1 &
                1.0
 pair_coeff * * potential_saved Si
 
+fix my_mdi all mdi/qm virial yes
+
 compute ppa all pe/atom
 thermo 1
 thermo_style custom step temp pe evdwl ecoul vol press spcpu
@@ -23,4 +25,4 @@ fix int all npt temp 300 300 0.1 tri 0 0 1.0
 dump traj all custom 1 traj.dump id type x y z ix iy iz c_ppa fx fy fz
 dump_modify traj sort id
 
-mdi engine
+run 1000

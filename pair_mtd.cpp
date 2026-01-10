@@ -660,91 +660,25 @@ double PairMTD::init_one(int i, int j) {
    proc 0 writes to restart file
 ------------------------------------------------------------------------- */
 
-void PairMTD::write_restart(FILE *fp) {
-    write_restart_settings(fp);
-    // Restart data format:
-    // 1. Number of elements (int)
-    // For each element:
-    // 2. num_data (int)
-    // 3. samples (vector<double>)
-
-    if (comm->me == 0) {
-        int nelem = nelements;
-        fwrite(&nelem, sizeof(int), 1, fp);
-
-        for (int i = 0; i < nelements; ++i) {
-            int ndata = biases[i].num_data;
-            fwrite(&ndata, sizeof(int), 1, fp);
-            if (ndata >0) {
-                fwrite(biases[i].samples.data(), sizeof(double), ndata, fp);
-            }
-        }
-    }
-}
+void PairMTD::write_restart(FILE *fp) {}
 
 /* ----------------------------------------------------------------------
    proc 0 reads from restart file, bcasts
 ------------------------------------------------------------------------- */
 
-void PairMTD::read_restart(FILE *fp) {
-    read_restart_settings(fp);
-
-    if (comm->me == 0) {
-        int nelem_file;
-        fread(&nelem_file, sizeof(int), 1, fp);
-        if (nelem_file != nelements) {
-            error->one(FLERR, "Number of elements in restart file does not match input script");
-        }
-
-        for (int i = 0; i < nelements; ++i) {
-            int ndata;
-            fread(&ndata, sizeof(int), 1, fp);
-
-            biases[i].num_data = ndata;
-            biases[i].samples.resize(ndata);
-
-            if (ndata > 0) {
-                fread(biases[i].samples.data(), sizeof(double), ndata, fp);
-            }
-        }
-    }
-
-    for (int i = 0; i < nelements; ++i) {
-        MPI_Bcast(&biases[i].num_data, 1, MPI_INT, 0, world);
-
-        if (comm->me != 0) {
-            biases[i].samples.resize(biases[i].num_data);
-        }
-
-        if (biases[i].num_data > 0) {
-            MPI_Bcast(biases[i].samples.data(), biases[i].num_data, MPI_DOUBLE, 0, world);
-        }
-    }
-}
+void PairMTD::read_restart(FILE *fp) {}
 
 /* ----------------------------------------------------------------------
    proc 0 writes to restart file
 ------------------------------------------------------------------------- */
 
-void PairMTD::write_restart_settings(FILE *fp) {
-    if (comm->me == 0) {
-        fwrite(&cutmax, sizeof(double), 1, fp);
-        fwrite(&reg, sizeof(double), 1, fp);
-    }
-}
+void PairMTD::write_restart_settings(FILE *fp) {}
 
 /* ----------------------------------------------------------------------
    proc 0 reads from restart file, bcasts
 ------------------------------------------------------------------------- */
 
-void PairMTD::read_restart_settings(FILE *fp) {
-    if (comm->me == 0) {
-        fread(&cutmax, sizeof(double), 1, fp);
-        fread(&reg, sizeof(double), 1, fp);
-    }
-    MPI_Bcast(&cutmax, 1, MPI_DOUBLE, 0, world);
-    MPI_Bcast(&reg, 1, MPI_DOUBLE, 0, world);
-}
+void PairMTD::read_restart_settings(FILE *fp) {}
 
 /* ---------------------------------------------------------------------- */
 
