@@ -101,7 +101,7 @@ class VASPCalculator(MDICalculator):
 
             # Forces & stress
             forces = []
-            virial = [0.0] * 6  # [수정 1] 빈 리스트([]) 대신 0.0으로 초기화
+            virial = [0.0] * 6
             stress = []
             varrays = last_calc.findall("varray")
             for v in varrays:
@@ -140,7 +140,6 @@ class VASPCalculator(MDICalculator):
         while True:
             ntry += 1
             try:
-                # [수정 2] VASP 실행 로그 확인을 위해 output 캡처
                 subprocess.check_output(self.vasp_cmd, stderr=subprocess.STDOUT, shell=True)
                 
                 energy, forces_sorted, virial, converged = self.read_vasprun()
@@ -149,7 +148,6 @@ class VASPCalculator(MDICalculator):
                     self._backup_outcar()
                     shutil.copy2("INCAR_step_start", "INCAR")
                     
-                    # [수정 3] forces_ordered 로직을 성공 시(converged) 내부로 이동
                     atom_indices = list(range(self.natoms))
                     sorted_indices = sorted(atom_indices, key=lambda k: types[k])
                     forces_ordered = [0.0] * (self.natoms * 3)
@@ -170,7 +168,6 @@ class VASPCalculator(MDICalculator):
                     self._apply_convergence_strategy(ntry + 1)
 
             except subprocess.CalledProcessError as e:
-                # [수정 4] VASP가 왜 죽었는지 출력
                 print(f"VASP Execution Error (Attempt {ntry}): Return Code {e.returncode}", flush=True)
                 print(f"VASP Output:\n{e.output.decode('utf-8')}", flush=True)
                 
@@ -260,18 +257,19 @@ def main(args):
         mdi.MDI_Send_Command("<NATOMS", comm)
         natoms = mdi.MDI_Recv(1, mdi.MDI_INT, comm)
         
-        # [수정 5] <NTYPES 대신 <TYPES를 사용하여 원소 개수 파악
         mdi.MDI_Send_Command("<TYPES", comm)
         atom_types = mdi.MDI_Recv(natoms, mdi.MDI_INT, comm)
         ntypes = max(atom_types)
 
+        mdi.MDI_Send_Command("@INIT_MD", comm)
         print(f"Driver Connected. Atoms: {natoms}, Types: {ntypes}", flush=True)
 
         for step in range(args.steps):
-            mdi.MDI_Send_Command("<COORDS", comm)
-            coords = mdi.MDI_Recv(natoms * 3, mdi.MDI_DOUBLE, comm)
             mdi.MDI_Send_Command("<CELL", comm)
             cell = mdi.MDI_Recv(9, mdi.MDI_DOUBLE, comm)
+            mdi.MDI_Send_Command("@FORCES", comm)
+            mdi.MDI_Send_Command("<COORDS", comm)
+            coords = mdi.MDI_Recv(natoms * 3, mdi.MDI_DOUBLE, comm)
 
             energy, forces, virial = calc.run_calculation(coords, cell, atom_types)
 
@@ -279,11 +277,11 @@ def main(args):
             mdi.MDI_Send(forces, natoms * 3, mdi.MDI_DOUBLE, comm)
             mdi.MDI_Send_Command(">ENERGY", comm)
             mdi.MDI_Send([energy], 1, mdi.MDI_DOUBLE, comm)
-            mdi.MDI_Send_Command("TRAJ", comm)
+            mdi.MDI_Send_Command("@ENDSTEP", comm)
 
             print(f"Step {step+1}/{args.steps} E={energy:.4f}", flush=True)
 
-            # [수정 6] Restart 주기 연산자 수정 (& -> %)
+            mdi.MDI_Send_Command("@DEFAULT", comm)
             if (step + 1) % args.restart_freq == 0:
                 cmd = f"write_restart restart.{step+1}.bin"
                 mdi.MDI_Send_Command("<COMMAND", comm)
