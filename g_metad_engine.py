@@ -8,13 +8,6 @@ import xml.etree.ElementTree as ET
 from glob import glob
 import mdi
 
-# For MLFF
-try:
-    from ase import Atoms
-    # Example: Sevennet 
-    from sevenn.calculator import SevenNetCalculator
-except ImportError:
-    pass
 
 BOHR_TO_ANG = 0.52917721067
 ANG_TO_BOHR = 1.0 / BOHR_TO_ANG
@@ -242,15 +235,24 @@ class VASPCalculator(MDICalculator):
 class MLFFCalculator(MDICalculator):
     def __init__(self, model_path, poscar_template):
         super().__init__(poscar_template)
-        # 'model_path' can be used like
-        # self.calc = Calculator(model_path)
-        self.calc = SevenNetCalculator(model='7net-omni', modal='mpa')
+        try:
+            import numpy as np
+            from ase import Atoms
+            # Example: Sevennet
+            from sevenn.calculator import SevenNetCalculator
+            # 'model_path' can be used like
+            # self.calc = Calculator(model_path)
+            self.np = np
+            self.Atoms = Atoms
+            self.calc = SevenNetCalculator(model='7net-omni', modal='mpa')
+        except ImportError as e:
+            print(f"Error in MLFFCalculator: {e}")
         
     def run_calculation(self, coords, box, types):
-        cell = np.array(box).reshape(3, 3)
-        pos = np.array(coords).reshape(-1, 3)
+        cell = self.np.array(box).reshape(3, 3)
+        pos = self.np.array(coords).reshape(-1, 3)
         symbols = [self.elements[t-1] for t in types]
-        atoms = Atoms(symbols=symbols, positions=pos, cell=cell, pbc=True)
+        atoms = self.Atoms(symbols=symbols, positions=pos, cell=cell, pbc=True)
         atoms.calc = self.calc
         energy = atoms.get_potential_energy()
         forces = atoms.get_forces().flatten().tolist()
@@ -314,7 +316,7 @@ def main(args):
 
                     energy_mdi = energy * EV_TO_HARTREE
                     forces_mdi = [f * EV_TO_HARTREE * BOHR_TO_ANG for f in forces]
-                    stress_mdi = [-1 * s * EV_TO_HARTREE * (BOHR_TO_ANG ** 3) for s in stress]
+                    stress_mdi = [s * EV_TO_HARTREE * (BOHR_TO_ANG ** 3) for s in stress]
                     calc_needed = False
 
                 if cmd == "<FORCES":

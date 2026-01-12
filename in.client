@@ -14,9 +14,13 @@ pair_coeff * * potential_saved Si
 
 fix my_mdi all mdi/qm virial yes
 
+compute myTemp all temp
 compute ppa all pe/atom
+compute p_static all pressure NULL virial
+compute p_kinetic all pressure myTemp ke
+
 thermo 1
-thermo_style custom step temp pe evdwl ecoul vol press spcpu
+thermo_style custom step temp pe evdwl ecoul vol c_p_static c_p_kinetic press spcpu
 
 timestep 0.002
 velocity all create 300 2025
