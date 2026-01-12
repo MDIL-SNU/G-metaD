@@ -1,0 +1,32 @@
+echo both
+boundary p p p
+units metal
+atom_modify map yes
+neigh_modify delay 0 every 1 check yes
+
+read_data crystal.dat
+
+pair_style mtd 1e-4 1 &
+               Si 0.001 1.0 20 &
+               1 &
+               1.0
+pair_coeff * * potential_saved Si
+
+fix my_mdi all mdi/qm virial yes
+
+compute myTemp all temp
+compute ppa all pe/atom
+compute p_static all pressure NULL virial
+compute p_kinetic all pressure myTemp ke
+
+thermo 1
+thermo_style custom step temp pe evdwl ecoul vol c_p_static c_p_kinetic press spcpu
+
+timestep 0.002
+velocity all create 300 2025
+fix int all npt temp 300 300 0.1 tri 0 0 1.0
+
+dump traj all custom 1 traj.dump id type x y z ix iy iz c_ppa fx fy fz
+dump_modify traj sort id
+
+run 1000
