@@ -1,184 +1,181 @@
-G-metaD can be used to sample a training set of machine learning potentials 
-via metadynamics, using an atom-centered symmetry function vector (G-space) 
-as the collective variable.
+# 1. What is G-metaD?
+G-metaD (Metadynamics sampling in atomic environment space) is an enhanced sampling method
+designed to efficiently generate training datasets for machine learning interatomic potentials (MLIP).
 
-D. Yoo, J. Jung, W. Jeong, and S. Han, Metadynamics sampling in atomic environment space for collecting training data for machine learning potentials, *npj Computational Materials* **7**, 131 (2021), [[https://doi.org/10.1038/s41524-021-00595-5](https://doi.org/10.1038/s41524-021-00595-5)]
+Unlike standard molecular dynamics, which often gets trapped in local minima, 
+G-metaD uses atom-centered symmetry function vectors (G-vectors) as collective variables (CVs) for metadynamics.
+By adding a history-dependent bias potential to these G-vectors, the system is encouraged to explore rare events
+and high-energy configurations that are crucial for training robust ML potentials.
 
-`vasp_wrap.py` is a wrapper on the VASP quantum DFT
-code so it can work as a "server" code which LAMMPS drives as a
-"client" code to perform ab initio MD.  LAMMPS performs the MD
-timestepping, sends VASP a current set of coordinates each timestep,
-VASP computes forces and energy and virial and returns that info to
-LAMMPS.
+Reference: D. Yoo, J. Jung, W. Jeong, and S. Han, Metadynamics sampling in atomic environment space for collecting training data for machine learning potentials, *npj Computational Materials* **7**, 131 (2021), [[https://doi.org/10.1038/s41524-021-00595-5](https://doi.org/10.1038/s41524-021-00595-5)]
 
-Messages are exchanged between MC and LAMMPS via a client/server
-library (CSlib), which is included in the LAMMPS distribution in
-lib/message.  As explained below you can choose to exchange data
-between the two programs either via files or sockets (ZMQ).
+# 2. Overview
+This package interfaces LAMMPS (Driver) and VASP/MLFF (Engine) using MDI (MolSSI Driver Interface) protocol.
 
-To make waiting LAMMPS client not consume 100% CPU usage while waiting for MPI operations,
-you can use modified version of CSlib in this repository.
+* LAMMPS: Acts as the MD driver. It integrates the equations of motion and applies the G-metaD bias potential.
+* Python Engine: Acts as the energy/force calculator. It wraps VASP(DFT) or MLFF, handles unit conversions, and cimmunicates with LAMMPS via TCP sockets.
 
+# 3. Prerequisites
+* LAMMPS (tested at 22Jul2025)
+* Eigen Library (tested at 3.4.1)
+* Python 3.8+
+* (Optional) VASP (for DFT calculations)
+* (Optional) MLFF supports ASE calculator
 
----------------
+# 4. Installation & Build
 
-Requirement
-----------
-* LAMMPS (29Oct2020)
-* [Eigen](http://eigen.tuxfamily.org) 
+## 4.1 Install Eigen library
+G-metaD uses the `Eigen` library for matrix operations. You do not need to compile `Eigen`,
+but you must download the source code from the [Eigen official website](https://libeigen.gitlab.io/).
 
-----------------
-
-Building
---------
-
-Build LAMMPS with its MESSAGE (OPENMP if needed) package installed:
-See the Build extras doc page and its MESSAGE package
-section for details. [[doc](https://docs.lammps.org/Build_extras.html)]
-
-
+## 4.2 Add G-metaD source codes
 ```bash
-cp -r cslib lammps/lib/message/  # copy modified cslib to lammps
-cd lammps/lib/message
-python Install.py -m -z          # build CSlib with MPI and ZMQ support
-cp -r Eigen lammps/src/
-cp pair_mtd.* symmetry_function.h lammps/src
-cd lammps/src
-make yes-message
-make mpi
+cp pair_mtd.* symmetry_function.h /path/to/lammps/src
 ```
 
-You can leave off the -z if you do not have ZMQ on your system.
-
-----------------
-
-Build the CSlib in a form usable by the `vasp_wrapper.py` script:
-
+## 4.3 Compile LAMMPS with CMake
+Create a build directory and run CMake. You must enable the MDI package, MPI, and specify the Eigen include directory
 ```bash
-cd lammps/lib/message/cslib/src
-make shlib            # build serial and parallel shared lib with ZMQ support
-make shlib zmq=no     # build serial and parallel shared lib w/out ZMQ support
+cd /path/to/lammps
+mkdir build && cd build
+
+cmake ../cmake \
+    -D DOWNLOAD_MDI=yes \
+    -D PKG_MDI=yes \
+    -D BUILD_MPI=yes \
+    -D CMAKE_CXX_FLAGS="-I/path/to/eigen"
+
+cmake --build . --target install
+```
+> [!NOTE]
+> If it fails due to missing Eigen headers, ensure the `-I/path/to/eigen` path correctly points to the directory containing the `Eigen` folder.
+
+## 4.4 Python environment setup
+```bash
+pip install pymdi
+```
+Download the MLFF you want to use.
+
+# 5. Usage & CPU resource allocation
+> [!IMPORTANT]
+> Since LAMMPS and VASP run concurrently, you must split your available CPU cores between them.
+> They should not share the same cores (oveersubscription), as this causes severe performance degradation.
+> * LAMMPS (Driver): Extremely lightweight. It only updates positions and calculates the bias potential.
+> * VASP (Engine): Computational bottleneck. It requires most CPU resources.
+
+## 5.1 Prepare input files
+Ensure the following files are present:
+* in.client: LAMMPS input script
+* POSCAR_template: Structure template
+* g_metad_engine.py: Python MDI Engine
+* run.sh Execution script
+* (VASP): INCAR, POTCAR, KPOINTS
+* (MLFF): model.pt
+
+## 5.2 Configure run.sh
+Modify the `-np` (number of processes flags i`run.sh` to adhere to the splitting rule.
+```bash
+export OMP_NUM_THREADS=1
+
+PORT=8021
+POSCAR_TEMPLATE="POSCAR_template"
+CALC_MODE="vasp"
+VASP_CMD="mpirun -np 28 vasp_std"
+ML_MODEL_PATH="trained_model.pt"
+LMP_BIN="lmp"
+
+
+echo "Starting LAMMPS Driver..."
+mpirun -np 4 lmp \
+    -mdi "-role DRIVER -name DRIVER -method TCP -port ${PORT}" \
+    -in in.client \
+    > lammps.log 2>&1 &
+
+DRIVER_PID=$!
+echo "DRIVER PID: $DRIVER_PID"
+
+sleep 5
+
+echo "Starting Python Engine..."
+python -u g_metad_engine.py \
+    --mdi "-role ENGINE -name ${CALC_MODE} -method TCP -port ${PORT} -hostname localhost"\
+    --poscar_template "${POSCAR_TEMPLATE}" \
+    --calculator ${CALC_MODE} \
+    --vasp_cmd "${VASP_CMD}" \
+    --ml_model "${ML_MODEL_PATH}" \
+    --max_try 4 \
+    1> engine.log 2> engine.err &
+
+ENGINE_PID=$!
+echo "Python Engine PID: $ENGINE_PID"
+
+trap "kill -9 $DRIVER_PID $ENGINE_PID 2>/dev/nulll; exit" SIGINT SIGTERM
+
+while true; do
+    if ! kill -0 $DRIVER_PID 2> /dev/null; then
+        kill -9 $ENGINE_PID 2> /dev/null
+        break
+    fi
+
+    if ! kill -0 $ENGINE_PID 2> /dev/null; then
+        kill -9 $DRIVER_PID 2> /dev/null
+        break
+    fi
+
+    sleep 1
+done
 ```
 
-This will make a shared library versions of the CSlib, which Python
-requires.  Python must be able to find both the cslib.py script and
-the libcsnompi.so library in your `lammps/lib/message/cslib/src`
-directory.  If it is not able to do this, you will get an error when
-you run `vasp_wrapper.py`.
+# 6. Input script example
 
-You can do this by augmenting two environment variables, either
-from the command line, or in your shell start-up script.
-Here is the sample syntax for the csh or tcsh shells:
-
-```bash
-export PYTHONPATH=$PYTHONPATH:/path/to/lammps/lib/message/cslib/src
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/path/to/lammps/lib/message/cslib/src
-```
-
-----------------
-
-Running
--------
-
-Prepare to use VASP and the `vasp_wrapper.py` script
-
-Insure you have the necessary VASP input files in this
-directory, suitable for the VASP calculation you want to perform:
-
-* `INCAR`
-* `KPOINTS`
-* `POSCAR_template`
-* `POTCAR`
-
-Examples of all but the `POTCAR` file are provided.
-The `POTCAR` file is a proprietary VASP file, so use one from your VASP installation.
-
-Note that the `POSCAR_template` file should be matched to the LAMMPS
-input script (# of atoms and atom types, box size, etc).
-
-------------------
-
-The parameters in pair_style are condition number of covariance matrix, the number of elements, symbol, the height (eV) and width (eV/Angstrom) of bias potential, update interval, the number of types, and the coefficient of bias.
-
-```bash
+## 6.1 G-metaD pair style
+```text
+# Syntax: pair_style mtd [cond_num] [N_elements] [Symbol] [Gaussian height] [Gaussian width] [Update interval] [N_types] [Bias flag]
 pair_style mtd 1e-4 1 &
-               Si 0.001 1.0 20 &
-               1 &
-               1.0
+                Si 0.001 1.0 20 &
+                1 &
+                1.0
 ```
-
 If the system consist of two elements such as GeTe, `in.client` is following:
-```bash
+```text
 pair_style mtd 1e-4 2 &
-               Ge 0.001 1.0 20 &
-               Te 0.001 1.0 20 &
-               2 &
-               1.0 1.0
+                Ge 0.001 1.0 20 &
+                Te 0.001 1.0 20 &
+                2 &
+                1.0 1.0
 ```
 
-----------------
-
-To run in client/server mode:
-
-NOTE: The `vasp_wrap.py` script must be run with Python version 2, not
-3.  This is because it used the CSlib python wrapper, which only
-supports version 2.
-
-Both the client (LAMMPS) and server (`vasp_wrap.py`) must use the same
-messaging mode, namely `file` or `zmq`.  This is an argument to the
-`vasp_wrap.py` code; it can be selected by setting the "mode" variable
-when you run LAMMPS.  The default mode is `file`.
-
-Here we assume LAMMPS was built to run in parallel, and the MESSAGE
-package was installed with socket (ZMQ) support.  This means either of
-the messaging modes can be used and LAMMPS can be run in serial or
-parallel.  The `vasp_wrap.py` code is always run in serial, but it
-launches VASP from Python via an mpirun command which can run VASP
-itself in parallel.
-
-When you run, the server should print out thermodynamic info every
-timestep which corresponds to the forces and virial computed by VASP.
-
-The examples below are commands you should use in two different
-terminal windows.  The order of the two commands (client or server
-launch) does not matter.  You can run them both in the same window if
-you append a "&" character to the first one to run it in the
-background.
-
---------------
-
-File mode of messaging:
-
-```bash
-python vasp_wrap.py file POSCAR_template "mpirun -np 1 vasp.x" &
-mpirun -np 1 lmp_mpi -v mode file -in in.client
+## 6.2 MDI fix configuration
+Use `fix mdi/qm` to retrieve energy, forces, and stress.
+``` text
+fix my_mdi all mdi/qm virial yes
 ```
 
-ZMQ mode of messaging:
+# 7. Advanced tips: controlling bias accumulation
+The `pair_modify tail` command controls whether the bias potential is updated (accumulated) or kept static.
 
-```bash
-python vasp_wrap.py zmq POSCAR_template "mpirun -np 1 vasp.x" &
-mpirun -np 1 lmp_mpi -v mode zmq -in in.client
+## 7.1 Dynamic bias (accumulation on)
+To continuously add new Gaussian hills and flatten the free energy surface (FES), use the default setting (`tail no`).
+* Behavior: The bias potential grows over time.
+* Use case: When you want to push the system out of local minima of fill the basins.
+```text
+pair_modify tail no
 ```
 
----------------
-
-You might have to set some environment variables for oversubscribing.
-For example, the commands below can enable both processes (`vasp_wrap.py` and LAMMPS) use all cores.
-
-```bash
-export PSM2_SHAREDCONTEXTS=YES
-export PSM2_MAX_CONTEXTS_PER_JOB=8
+## 7.2 Static bias (accumulation off)
+To stop adding new hills and sample configurations on the currently accumulated bias potential, use `tail yes`.
+* Behavior: The bias potential remains fixed (frozen).
+* Use case: When the FES is sufficiently flattened, and you want to sample equilibrium distributions on the modified surface.
+```text
+pair_modify tail yes
 ```
 
-------------------
+# 8. Troubleshooting
 
-Caution
--------
+## Q1. `Could not bind socket` error
+* Cause: A previous job left a zombie process holding the port.
+* Solution: Kill all processes or change the port in `run.sh`.
 
-1. Atom types in LAMMPS and VASP (POSCAR) may differ and cause unexpected problems.
-   The code does not check for consistency.
-2. The convergence of electronic step in VASP is not checked.
-3. Some errors will not terminate your job. For example, when VASP calculation fails causing `vasp_wrap.py` to terminate,
-   LAMMPS hangs waiting for server response.
-4. Since VASP have to start and terminate on every step, it could be much slower than VASP MD for small systems due to the overhead.
+## Q2. VASP fails (symmetry error)
+* Cause: During MD, structural distortions may cause VASP to fail in determining symmetry, leading to crashes.
+* Solution: Modify the `SYMPREC` parameter in your `INCAR` file for symmetry tolerance.
