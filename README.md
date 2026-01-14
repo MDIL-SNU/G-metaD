@@ -178,4 +178,4 @@ pair_modify tail yes
 
 ## Q2. VASP fails (symmetry error)
 * Cause: During MD, structural distortions may cause VASP to fail in determining symmetry, leading to crashes.
-* Solution: Modify the `SYMPREC` parameter in your `INCAR` file for symmetry tolerance.
+* Solution: Increase the `SYMPREC` parameter in your `INCAR` file for symmetry tolerance.
